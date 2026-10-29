@@ -138,6 +138,15 @@ export const BorderRadius = {
   xxxl: 32,
   /** 9999 — fully rounded (avatar circles, pill shapes) */
   full: 9999,
+
+  /** Semantic aliases */
+
+  card: 20,
+
+  chip: 8,
+
+  button: 16,
+
 } as const;
 
 // ============================================================================
@@ -304,6 +313,13 @@ export const Typography = {
 // SHADOWS — Glass-appropriate elevations
 // ============================================================================
 export const Shadows = {
+  sm: {
+    shadowColor: '#2D3A28',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.04,
+    shadowRadius: 8,
+    elevation: 2,
+  },
   /** Standard card shadow — subtle elevation */
   card: {
     shadowColor: '#2D3A28',

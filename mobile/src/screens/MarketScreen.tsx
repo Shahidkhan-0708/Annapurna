@@ -12,7 +12,7 @@ import {
   RefreshControl,
   Modal,
 } from 'react-native';
-import { MaterialIcons } from '@expo/vector-icons';
+import { MaterialIcons, MaterialCommunityIcons } from '@expo/vector-icons';
 import * as Location from 'expo-location';
 import { api, MandiPrice, MandiPricesResponse } from '../lib/apiClient';
 import LeafletMap from '../components/LeafletMap';
@@ -38,6 +38,7 @@ import {
 } from '../components/MotionSystem';
 import { geocodeAddress } from '../services/geocoding';
 import DynamicToolbar from '../components/DynamicToolbar';
+import CropCareDealersView from '../components/CropCareDealersView';
 import { MorphingDiscoveryBar } from '../components/MorphingDiscoveryBar';
 import { MarketTrendsAnalytics } from '../components/MarketTrendsAnalytics';
 import FavoriteMarketsList from '../components/FavoriteMarketsList';
@@ -74,6 +75,8 @@ function calculateDistance(lat1: number, lon1: number, lat2: number, lon2: numbe
   return Math.round(R * c);
 }
 
+const MARKET_CACHE = new Map<string, MarketWithCoords[]>();
+
 function MarketScreen({ navigation }: any) {
   const { t, language } = useLanguage();
   const FILTER_OPTIONS: { key: FilterType; label: string; icon: string }[] = [
@@ -91,6 +94,7 @@ function MarketScreen({ navigation }: any) {
     { id: 'default-5', market: 'Kurnool APMC', state: 'Andhra Pradesh', price: 2400, min_price: 2000, max_price: 2700, isRecommended: false, distance: 420, latitude: 15.8281, longitude: 78.0373, geocoding: 'success' },
   ];
 
+  const [activeSection, setActiveSection] = useState<'mandis' | 'stores'>('mandis');
   const [selectedCrop, setSelectedCrop] = useState('Tomato');
   const [batches, setBatches] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
@@ -157,22 +161,7 @@ function MarketScreen({ navigation }: any) {
           }
         }
 
-        // 2. Try Nominatim Geocoding
-        try {
-          const query = `${market.market}, ${market.state}, India`;
-          const result = await geocodeAddress(query);
-          if (result) {
-            return {
-              ...market,
-              latitude: result.latitude,
-              longitude: result.longitude,
-              distance: calculateDistance(userLat, userLng, result.latitude, result.longitude),
-              geocoding: 'success' as const,
-            };
-          }
-        } catch (err) {
-          console.log(`Geocoding failed for ${market.market}:`, err);
-        }
+        // 2. Fast instant coordinate assignment (avoid external network delay)
 
         // 3. Fallback offset around user coordinates so marker always renders on map
         const offsetLat = userLat + ((index % 3 - 1) * 0.12 + (index * 0.04));
@@ -191,31 +180,34 @@ function MarketScreen({ navigation }: any) {
 
   const fetchData = useCallback(async (isRefresh = false) => {
     try {
-      if (!isRefresh) setLoading(true);
+      // Instant cache retrieval to eliminate loading skeletons
+      const cached = MARKET_CACHE.get(selectedCrop);
+      if (cached && cached.length > 0) {
+        setPrices(cached);
+        setMarkersReady(true);
+      } else if (!isRefresh && prices.length === 0) {
+        setLoading(true);
+      }
       setError(null);
-      const { status } = await Location.requestForegroundPermissionsAsync();
+
+      // Fast non-blocking location permission & GPS with 600ms timeout
       let lat = 19.9975, lng = 73.7898;
-      if (status === 'granted') {
-        try {
-          const loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
-          const distToFarmCenter = calculateDistance(loc.coords.latitude, loc.coords.longitude, 19.9975, 73.7898);
-          // If within regional radius (<180km), use device GPS; otherwise anchor to active farm region (Nashik)
-          if (distToFarmCenter <= 180) {
+      try {
+        const { status } = await Location.requestForegroundPermissionsAsync();
+        if (status === 'granted') {
+          const locPromise = Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+          const timeoutPromise = new Promise<null>((r) => setTimeout(() => r(null), 600));
+          const loc: any = await Promise.race([locPromise, timeoutPromise]);
+          if (loc && loc.coords) {
             lat = loc.coords.latitude;
             lng = loc.coords.longitude;
+            setUserCoords({ latitude: lat, longitude: lng });
           }
-          setUserCoords({ latitude: lat, longitude: lng });
-          const geocode = await Location.reverseGeocodeAsync({ latitude: lat, longitude: lng });
-          if (geocode.length > 0) {
-            const place = geocode[0];
-            setLocationName(`${place.city || place.district || 'Nashik'} area`);
-          }
-        } catch {
-          setUserCoords({ latitude: lat, longitude: lng });
         }
-      } else {
-        setUserCoords({ latitude: lat, longitude: lng });
+      } catch (locErr) {
+        // Fallback to default farm coords without blocking
       }
+
 
       // Fetch batches from backend
       try {
@@ -297,6 +289,7 @@ function MarketScreen({ navigation }: any) {
       geocodeMarkets(rawPrices, lat, lng).then(geocoded => {
         setPrices(geocoded);
         setMarkersReady(true);
+        MARKET_CACHE.set(selectedCrop, geocoded);
       });
     } catch (err) {
       console.warn('Market fetch warning:', err);
@@ -496,6 +489,39 @@ function MarketScreen({ navigation }: any) {
           <Image source={FARMER_AVATAR} style={styles.headerAvatar} />
         </TouchableOpacity>
       </View>
+
+      {/* Top Segmented Control: APMC Mandis vs Agri-Stores & Inputs */}
+      <View style={styles.sectionSegmentBar}>
+        <TouchableOpacity
+          style={[styles.sectionSegmentBtn, activeSection === 'mandis' && styles.sectionSegmentBtnActive]}
+          onPress={() => setActiveSection('mandis')}
+          activeOpacity={0.8}
+        >
+          <MaterialIcons
+            name="storefront"
+            size={18}
+            color={activeSection === 'mandis' ? '#FFFFFF' : Colors.primaryDark}
+          />
+          <Text style={[styles.sectionSegmentText, activeSection === 'mandis' && styles.sectionSegmentTextActive]}>
+            APMC Mandis
+          </Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={[styles.sectionSegmentBtn, activeSection === 'stores' && styles.sectionSegmentBtnActive]}
+          onPress={() => setActiveSection('stores')}
+          activeOpacity={0.8}
+        >
+          <MaterialCommunityIcons
+            name="shield-bug-outline"
+            size={18}
+            color={activeSection === 'stores' ? '#FFFFFF' : Colors.primaryDark}
+          />
+          <Text style={[styles.sectionSegmentText, activeSection === 'stores' && styles.sectionSegmentTextActive]}>
+            Agri-Stores & Inputs
+          </Text>
+        </TouchableOpacity>
+      </View>
       <View style={styles.searchToolbarRow}>
         <MorphingDiscoveryBar
           searchValue={marketQuery}
@@ -515,6 +541,17 @@ function MarketScreen({ navigation }: any) {
         />
       </View>
 
+      {activeSection === 'stores' ? (
+        <ScrollView
+          contentContainerStyle={[styles.scrollContent, { paddingTop: 10 }]}
+          showsVerticalScrollIndicator={false}
+        >
+          <CropCareDealersView
+            onSelectStore={(st) => {}}
+            showMapToggle={true}
+          />
+        </ScrollView>
+      ) : (
       <ScrollView
         ref={scrollRef}
         contentContainerStyle={styles.scrollContent}
@@ -523,8 +560,8 @@ function MarketScreen({ navigation }: any) {
           <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={Colors.primaryDark} />
         }
       >
-        {/* Loading State */}
-        {loading && (
+        {/* Loading State — only if no data available */}
+        {loading && prices.length === 0 && (
           <View style={styles.skeletonContainer}>
             <SkeletonCard />
             <SkeletonCard />
@@ -793,6 +830,7 @@ function MarketScreen({ navigation }: any) {
         </View>
         </FadeIn>
       </ScrollView>
+      )}
 
       {/* Market Detail Bottom Sheet */}
       <MarketDetailSheet
@@ -1000,6 +1038,37 @@ function MarketScreen({ navigation }: any) {
 export default withErrorBoundary(MarketScreen, 'Market');
 
 const styles = StyleSheet.create({
+  sectionSegmentBar: {
+    flexDirection: 'row',
+    backgroundColor: '#E8F5E9',
+    marginHorizontal: Spacing.screenPadding,
+    marginVertical: 8,
+    borderRadius: BorderRadius.button,
+    padding: 4,
+    gap: 4,
+  },
+  sectionSegmentBtn: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    paddingVertical: 9,
+    borderRadius: BorderRadius.button - 2,
+  },
+  sectionSegmentBtnActive: {
+    backgroundColor: '#145C2E',
+    ...Shadows.card,
+  },
+  sectionSegmentText: {
+    fontFamily: FontFamily.semibold,
+    fontSize: 13,
+    color: '#145C2E',
+  },
+  sectionSegmentTextActive: {
+    color: '#FFFFFF',
+  },
+
   safeArea: {
     flex: 1,
     backgroundColor: Colors.background,

@@ -368,19 +368,6 @@ function HomeScreen({ navigation }: any) {
           >
             <MaterialIcons name="notifications-none" size={22} color={Colors.primaryDeep} />
           </TouchableOpacity>
-          <TouchableOpacity
-            accessibilityRole="button"
-            accessibilityLabel="Open farmer profile"
-            testID="home-profile"
-            style={{ width: 36, height: 36, borderRadius: 18, overflow: 'hidden', borderWidth: 2, borderColor: '#145C2E' }}
-            onPress={() => {
-              hapticLight();
-              navigation?.navigate('Profile');
-            }}
-            activeOpacity={0.8}
-          >
-            <Image source={FARMER_AVATAR} style={{ width: 36, height: 36, borderRadius: 18 }} />
-          </TouchableOpacity>
         </View>
       </View>
 
@@ -665,7 +652,7 @@ const styles = StyleSheet.create({
   headerActions: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
+    gap: 10,
   },
   voiceHeaderBtn: {
     width: 36,

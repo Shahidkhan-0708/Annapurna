@@ -77,6 +77,31 @@ export default function PestScreen({ navigation }: any) {
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
       >
+                {/* Quick Access to Verified Input Dealers — No digging to bottom needed */}
+        <FadeInUp delay={40} duration={450}>
+          <TouchableOpacity
+            style={styles.quickDealersStrip}
+            activeOpacity={0.85}
+            onPress={() => navigation?.navigate('CropCareStores')}
+          >
+            <View style={styles.quickDealersIconWrap}>
+              <MaterialCommunityIcons name="storefront-outline" size={20} color="#15803D" />
+            </View>
+            <View style={{ flex: 1 }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                <Text style={styles.quickDealersTitle}>Verified Agro-Care Stores</Text>
+                <View style={styles.quickDealersBadge}>
+                  <Text style={styles.quickDealersBadgeText}>5 Nearby</Text>
+                </View>
+              </View>
+              <Text style={styles.quickDealersSub}>
+                Pesticides & Fertilizers from 1.8 km (IFFCO / Syngenta)
+              </Text>
+            </View>
+            <MaterialIcons name="chevron-right" size={20} color={Colors.primaryDark} />
+          </TouchableOpacity>
+        </FadeInUp>
+
         {/* Primary Action Cards — FadeInUp */}
         <FadeInUp delay={80} duration={500}>
         <View style={styles.actionCardsRow}>
@@ -402,7 +427,7 @@ const styles = StyleSheet.create({
   scrollContent: {
     paddingHorizontal: Spacing.screenPadding,
     paddingTop: Spacing.xs,
-    paddingBottom: 100,
+    paddingBottom: 130,
     gap: Spacing.sectionGap,
   },
   // Action cards — reduced vertical padding
@@ -419,17 +444,59 @@ const styles = StyleSheet.create({
     borderColor: Colors.divider,
     ...Shadows.card,
   },
+  quickDealersStrip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#F0FDF4',
+    borderWidth: 1,
+    borderColor: '#BBF7D0',
+    borderRadius: BorderRadius.card,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    gap: 10,
+    ...Shadows.card,
+  },
+  quickDealersIconWrap: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: '#DCFCE7',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  quickDealersTitle: {
+    fontFamily: FontFamily.bold,
+    fontSize: 13,
+    color: '#14532D',
+  },
+  quickDealersBadge: {
+    backgroundColor: '#DCFCE7',
+    paddingHorizontal: 6,
+    paddingVertical: 1,
+    borderRadius: 4,
+  },
+  quickDealersBadgeText: {
+    fontFamily: FontFamily.semibold,
+    fontSize: 10,
+    color: '#15803D',
+  },
+  quickDealersSub: {
+    fontFamily: FontFamily.regular,
+    fontSize: 11,
+    color: '#166534',
+    marginTop: 1,
+  },
   pestIconCircle: {
-    width: 56,
-    height: 56,
+    width: 46,
+    height: 46,
     borderRadius: BorderRadius.full,
     backgroundColor: Colors.successLight,
     alignItems: 'center',
     justifyContent: 'center',
   },
   soilIconCircle: {
-    width: 56,
-    height: 56,
+    width: 46,
+    height: 46,
     borderRadius: BorderRadius.full,
     backgroundColor: Colors.surfaceAlt,
     borderWidth: 1,
@@ -456,7 +523,7 @@ const styles = StyleSheet.create({
     width: '100%',
     backgroundColor: Colors.primaryDark,
     borderRadius: BorderRadius.md,
-    paddingVertical: Spacing.sm + 2,
+    paddingVertical: Spacing.sm,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
@@ -474,7 +541,7 @@ const styles = StyleSheet.create({
     width: '100%',
     backgroundColor: Colors.background,
     borderRadius: BorderRadius.md,
-    paddingVertical: Spacing.sm + 2,
+    paddingVertical: Spacing.sm,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',

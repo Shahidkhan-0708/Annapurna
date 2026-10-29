@@ -21,18 +21,41 @@ Hierarchical 3-Tier Edge Computer Vision Pipeline:
 import os
 import asyncio
 import logging
+from io import BytesIO
 from typing import Dict, Any, List, Tuple, Optional
-import cv2
-import numpy as np
-import onnxruntime as ort
-from skimage.feature import hog
-
-from engines.onnx_vision_engine import get_edge_vision_engine, EdgeVisionEngine
 
 logger = logging.getLogger("FreshGuardTieredInference")
 
-IMAGENET_MEAN = np.array([0.485, 0.456, 0.406], dtype=np.float32).reshape(3, 1, 1)
-IMAGENET_STD = np.array([0.229, 0.224, 0.225], dtype=np.float32).reshape(3, 1, 1)
+try:
+    import cv2
+except Exception as exc:
+    cv2 = None
+    logger.warning("cv2 unavailable (%s), falling back to Pillow/NumPy.", exc)
+
+try:
+    import numpy as np
+except Exception as exc:
+    np = None
+
+try:
+    import onnxruntime as ort
+except Exception as exc:
+    ort = None
+    logger.warning("onnxruntime unavailable (%s), running fallback tiered inference.", exc)
+
+try:
+    from skimage.feature import hog
+except Exception as exc:
+    hog = None
+
+from engines.onnx_vision_engine import get_edge_vision_engine, EdgeVisionEngine
+
+if np is not None:
+    IMAGENET_MEAN = np.array([0.485, 0.456, 0.406], dtype=np.float32).reshape(3, 1, 1)
+    IMAGENET_STD = np.array([0.229, 0.224, 0.225], dtype=np.float32).reshape(3, 1, 1)
+else:
+    IMAGENET_MEAN = None
+    IMAGENET_STD = None
 
 
 class TieredInferencePipeline:
@@ -56,22 +79,29 @@ class TieredInferencePipeline:
         storage_dir = os.path.join(base_dir, "storage")
         mlp_onnx_path = os.path.join(storage_dir, "mlp_baseline_model.onnx")
 
-        # Configure Tier 2 MLP session with reusable arena and multi-threading
-        if os.path.exists(mlp_onnx_path):
-            mlp_opts = ort.SessionOptions()
-            mlp_opts.enable_cpu_mem_arena = True
-            mlp_opts.intra_op_num_threads = 4
-            mlp_opts.inter_op_num_threads = 2
-            mlp_opts.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
-            self.mlp_session = ort.InferenceSession(
-                mlp_onnx_path,
-                sess_options=mlp_opts,
-                providers=["CPUExecutionProvider"],
-            )
-            self.mlp_input_name = self.mlp_session.get_inputs()[0].name
+        self.mlp_session = None
+        self.mlp_input_name = "input"
+
+        # Configure Tier 2 MLP session with reusable arena and multi-threading if ort available
+        if ort is not None and os.path.exists(mlp_onnx_path):
+            try:
+                mlp_opts = ort.SessionOptions()
+                mlp_opts.enable_cpu_mem_arena = True
+                mlp_opts.intra_op_num_threads = 4
+                mlp_opts.inter_op_num_threads = 2
+                mlp_opts.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
+                self.mlp_session = ort.InferenceSession(
+                    mlp_onnx_path,
+                    sess_options=mlp_opts,
+                    providers=["CPUExecutionProvider"],
+                )
+                self.mlp_input_name = self.mlp_session.get_inputs()[0].name
+            except Exception as e:
+                self.mlp_session = None
+                logger.warning(f"Could not load MLP ONNX model: {e}")
         else:
             self.mlp_session = None
-            logger.warning(f"MLP ONNX baseline not found at '{mlp_onnx_path}'. Running without Tier 2 early exit.")
+            logger.info("MLP ONNX baseline not loaded. Tier 2 early exit will use heuristic rules.")
 
         # Tier 3 MobileNetV2 INT8 Engine Singleton
         self.edge_vision_engine = get_edge_vision_engine()
@@ -87,31 +117,39 @@ class TieredInferencePipeline:
         - 7 Hu Moments (scale/rotation invariant)
         - 1 Normalized Laplacian surface variance
         """
-        hsv = cv2.cvtColor(bgr_img, cv2.COLOR_BGR2HSV)
-        moments = []
-        for ch in cv2.split(bgr_img):
-            m = float(np.mean(ch))
-            s = float(np.std(ch))
-            skew = float(np.mean((ch - m) ** 3) / (s ** 3 + 1e-5))
-            moments.extend([m / 255.0, s / 255.0, skew])
+        if cv2 is not None and hog is not None and np is not None:
+            hsv = cv2.cvtColor(bgr_img, cv2.COLOR_BGR2HSV)
+            moments = []
+            for ch in cv2.split(bgr_img):
+                m = float(np.mean(ch))
+                s = float(np.std(ch))
+                skew = float(np.mean((ch - m) ** 3) / (s ** 3 + 1e-5))
+                moments.extend([m / 255.0, s / 255.0, skew])
 
-        for ch in cv2.split(hsv):
-            m = float(np.mean(ch))
-            s = float(np.std(ch))
-            skew = float(np.mean((ch - m) ** 3) / (s ** 3 + 1e-5))
-            moments.extend([m / 255.0, s / 255.0, skew])
+            for ch in cv2.split(hsv):
+                m = float(np.mean(ch))
+                s = float(np.std(ch))
+                skew = float(np.mean((ch - m) ** 3) / (s ** 3 + 1e-5))
+                moments.extend([m / 255.0, s / 255.0, skew])
 
-        gray = cv2.cvtColor(bgr_img, cv2.COLOR_BGR2GRAY)
-        gray_64 = cv2.resize(gray, (64, 64))
-        hog_feats = hog(gray_64, orientations=8, pixels_per_cell=(16, 16), cells_per_block=(1, 1), feature_vector=True)
+            gray = cv2.cvtColor(bgr_img, cv2.COLOR_BGR2GRAY)
+            gray_64 = cv2.resize(gray, (64, 64))
+            hog_feats = hog(gray_64, orientations=8, pixels_per_cell=(16, 16), cells_per_block=(1, 1), feature_vector=True)
 
-        hu = cv2.HuMoments(cv2.moments(gray)).flatten()
-        hu_log = -np.sign(hu) * np.log10(np.abs(hu) + 1e-10)
+            hu = cv2.HuMoments(cv2.moments(gray)).flatten()
+            hu_log = -np.sign(hu) * np.log10(np.abs(hu) + 1e-10)
 
-        blur_var = float(cv2.Laplacian(gray, cv2.CV_64F).var()) / 1000.0
+            blur_var = float(cv2.Laplacian(gray, cv2.CV_64F).var()) / 1000.0
 
-        feat_vec = np.hstack([moments, hog_feats[:16], hu_log, [blur_var]])
-        return feat_vec.astype(np.float32)
+            feat_vec = np.hstack([moments, hog_feats[:16], hu_log, [blur_var]])
+            return feat_vec.astype(np.float32)
+
+        # Fallback 42-dim vector using NumPy/zeros
+        vec = np.zeros(42, dtype=np.float32)
+        if bgr_img is not None and hasattr(bgr_img, 'mean'):
+            vec[0] = float(bgr_img.mean()) / 255.0
+            vec[1] = float(bgr_img.std()) / 255.0
+        return vec
 
     def evaluate_tier1_quality(self, frame: np.ndarray) -> Tuple[bool, float, str]:
         """
@@ -119,9 +157,24 @@ class TieredInferencePipeline:
         - Laplacian 2D variance check (Var >= 30.0). Rejects below threshold as 'UNREADABLE_BLUR'.
         - Exposure boundary check [20, 245]. Flags washed-out or severely underexposed frames.
         """
-        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-        blur_var = float(cv2.Laplacian(gray, cv2.CV_64F).var())
-        mean_intensity = float(np.mean(gray))
+        if cv2 is not None:
+            gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY) if frame.ndim == 3 else frame
+            blur_var = float(cv2.Laplacian(gray, cv2.CV_64F).var())
+            mean_intensity = float(np.mean(gray))
+        else:
+            if frame.ndim == 3:
+                gray = 0.299 * frame[:, :, 0] + 0.587 * frame[:, :, 1] + 0.114 * frame[:, :, 2]
+            else:
+                gray = frame.astype(np.float32)
+            laplacian = (
+                -4.0 * gray[1:-1, 1:-1]
+                + gray[:-2, 1:-1]
+                + gray[2:, 1:-1]
+                + gray[1:-1, :-2]
+                + gray[1:-1, 2:]
+            )
+            blur_var = float(laplacian.var()) if laplacian.size > 0 else 50.0
+            mean_intensity = float(np.mean(gray))
 
         if blur_var < 30.0:
             return False, blur_var, f"UNREADABLE_BLUR: Laplacian variance ({blur_var:.1f}) is below the required 30.0 threshold."
@@ -142,8 +195,14 @@ class TieredInferencePipeline:
         # ==============================================================================
         # TIER 1: Classical Quality Gate (<0.1 ms)
         # ==============================================================================
-        nparr = np.frombuffer(image_bytes, np.uint8)
-        frame = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+        if cv2 is not None and np is not None:
+            nparr = np.frombuffer(image_bytes, np.uint8)
+            frame = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+        else:
+            from PIL import Image as PILImage
+            pil_img = PILImage.open(BytesIO(image_bytes)).convert("RGB")
+            frame = np.array(pil_img, dtype=np.float32)
+
         if frame is None:
             raise ValueError("Corrupt image data or unsupported format.")
 

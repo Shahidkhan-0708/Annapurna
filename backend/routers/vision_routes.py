@@ -12,10 +12,11 @@ import hashlib
 import asyncio
 from io import BytesIO
 import logging
+from typing import Optional
 from PIL import Image, UnidentifiedImageError
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from starlette.datastructures import UploadFile as StarletteUploadFile
-from auth import get_current_user
+from auth import get_current_user, get_optional_user
 from engines.vision import run_vision_sensor_layer
 from engines.onnx_vision_engine import get_edge_vision_engine
 from engines.tiered_inference_pipeline import get_tiered_pipeline
@@ -29,7 +30,7 @@ MAX_SAMPLE_BYTES = 10 * 1024 * 1024
 @router.post("/api/v5/vision/analyze", response_model=VisionAgronomySchema)
 async def analyze_image(
     file: UploadFile = File(...),
-    user: dict = Depends(get_current_user),
+    user: Optional[dict] = Depends(get_optional_user),
 ):
     """
     Analyze a single crop image using the 3-tier vision pipeline.
@@ -68,7 +69,7 @@ async def analyze_image(
 @router.post("/api/v5/vision/analyze-batch")
 async def analyze_batch_images(
     files: list[UploadFile] = File(...),
-    user: dict = Depends(get_current_user),
+    user: Optional[dict] = Depends(get_optional_user),
 ):
     """
     Analyze multiple crop images (5-sample protocol).
@@ -173,7 +174,7 @@ async def analyze_batch_images(
 @router.post("/api/v5/vision/analyze-edge-onnx")
 async def analyze_batch_edge_onnx(
     files: list[UploadFile] = File(...),
-    user: dict = Depends(get_current_user),
+    user: Optional[dict] = Depends(get_optional_user),
 ):
     """
     Offline-First MobileNetV2 ONNX Edge Inference Endpoint.
@@ -230,7 +231,7 @@ async def analyze_batch_edge_onnx(
 @router.post("/api/v5/vision/analyze-tiered-batch")
 async def analyze_tiered_batch_images(
     files: list[UploadFile] = File(...),
-    user: dict = Depends(get_current_user),
+    user: Optional[dict] = Depends(get_optional_user),
 ):
     """
     3-Tier Hierarchical Produce Inspection Endpoint with Early Exit.

@@ -440,7 +440,7 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
   },
   dismissButtonText: {
-    fontFamily: FontFamily.semiBold,
+    fontFamily: FontFamily.semibold,
     fontSize: 13,
     color: Colors.textMuted,
   },

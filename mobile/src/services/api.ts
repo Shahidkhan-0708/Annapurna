@@ -570,52 +570,112 @@ export const analyzeImage = async (imageBase64: string, mimeType = 'image/webp')
   return response.json();
 };
 
-export const analyzeBatch = async (samples: Array<{ uploadUri: string; base64: string; mimeType?: string }> | string[], mimeType = 'image/webp', cropType: string, latitude: number, longitude: number) => {
+function base64ToBlob(base64Data: string, contentType: string = 'image/webp'): Blob {
+  const clean = (base64Data || '').replace(/^data:[^;]+;base64,/, '').trim();
+  if (!clean) {
+    return new Blob([], { type: contentType });
+  }
+  const binary = atob(clean);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) {
+    bytes[i] = binary.charCodeAt(i);
+  }
+  return new Blob([bytes], { type: contentType });
+}
+
+export const analyzeBatch = async (
+  samples: Array<{ uploadUri: string; base64: string; mimeType?: string }> | string[],
+  mimeType = 'image/webp',
+  cropType: string,
+  latitude: number,
+  longitude: number
+) => {
   const formData = new FormData();
   const temporaryFiles: File[] = [];
   try {
-  for (const [index, sample] of samples.entries()) {
-    const base64 = typeof sample === 'string' ? sample : sample.base64;
-    const sampleMimeType = typeof sample === 'string' ? mimeType : (sample.mimeType || mimeType);
-    let uploadUri = typeof sample === 'string' ? '' : sample.uploadUri;
-    if (typeof sample === 'string' && Platform.OS !== 'web') {
-      const file = new File(Paths.cache, `scan-${Date.now()}-${index}.webp`);
-      temporaryFiles.push(file);
-      file.write(base64, { encoding: 'base64' });
-      uploadUri = file.uri;
+    for (const [index, sample] of samples.entries()) {
+      const base64 = typeof sample === 'string' ? sample : sample.base64;
+      const sampleMimeType = typeof sample === 'string' ? mimeType : (sample.mimeType || mimeType);
+      let uploadUri = typeof sample === 'string' ? '' : sample.uploadUri;
+      const filename = `crop_${index}.${sampleMimeType === 'image/jpeg' ? 'jpg' : 'webp'}`;
+
+      if (Platform.OS === 'web') {
+        let blob: Blob;
+        if (base64 && base64.length > 50) {
+          blob = base64ToBlob(base64, sampleMimeType);
+        } else if (uploadUri && (uploadUri.startsWith('blob:') || uploadUri.startsWith('data:'))) {
+          try {
+            blob = await fetch(uploadUri).then(r => r.blob());
+          } catch {
+            blob = base64ToBlob(base64 || '', sampleMimeType);
+          }
+        } else {
+          blob = base64ToBlob(base64 || '', sampleMimeType);
+        }
+        formData.append('files', blob, filename);
+      } else {
+        if (typeof sample === 'string') {
+          const file = new File(Paths.cache, `scan-${Date.now()}-${index}.webp`);
+          temporaryFiles.push(file);
+          file.write(base64, { encoding: 'base64' });
+          uploadUri = file.uri;
+        }
+        formData.append('files', { uri: uploadUri, name: filename, type: sampleMimeType } as any);
+      }
     }
-    if (Platform.OS === 'web') {
-      const blob = typeof sample === 'string'
-        ? await fetch(`data:${sampleMimeType};base64,${base64}`).then(response => response.blob())
-        : await fetch(uploadUri).then(response => response.blob());
-      formData.append('files', blob, `crop_${index}.${sampleMimeType === 'image/jpeg' ? 'jpg' : 'webp'}`);
-    } else {
-      formData.append('files', { uri: uploadUri, name: `crop_${index}.${sampleMimeType === 'image/jpeg' ? 'jpg' : 'webp'}`, type: sampleMimeType } as any);
+
+    formData.append('crop_type', cropType);
+    formData.append('latitude', latitude.toString());
+    formData.append('longitude', longitude.toString());
+
+    const token = await getAuthToken();
+    const authHeaders: Record<string, string> = {};
+    if (token) authHeaders['Authorization'] = `Bearer ${token}`;
+
+    const candidateUrls: string[] = [];
+    if (BASE_URL) {
+      candidateUrls.push(`${BASE_URL.replace(/\/+$/, '')}/api/v5/vision/analyze-batch`);
     }
-  }
+    if (Platform.OS === 'web' && typeof window !== 'undefined' && window.location) {
+      const originUrl = `${window.location.origin}/api/v5/vision/analyze-batch`;
+      if (!candidateUrls.includes(originUrl)) candidateUrls.push(originUrl);
+      if (!candidateUrls.includes('/api/v5/vision/analyze-batch')) candidateUrls.push('/api/v5/vision/analyze-batch');
+    }
+    if (!candidateUrls.includes('http://localhost:8000/api/v5/vision/analyze-batch')) {
+      candidateUrls.push('http://localhost:8000/api/v5/vision/analyze-batch');
+    }
+    if (!candidateUrls.includes('http://127.0.0.1:8000/api/v5/vision/analyze-batch')) {
+      candidateUrls.push('http://127.0.0.1:8000/api/v5/vision/analyze-batch');
+    }
 
-  formData.append('crop_type', cropType);
-  formData.append('latitude', latitude.toString());
-  formData.append('longitude', longitude.toString());
+    let lastError: any = null;
+    for (const url of candidateUrls) {
+      try {
+        const response = await fetch(url, {
+          method: 'POST',
+          body: formData,
+          headers: authHeaders,
+        });
 
-  const token = await getAuthToken();
-  const authHeaders: Record<string, string> = {};
-  if (token) authHeaders['Authorization'] = `Bearer ${token}`;
+        if (response.ok) {
+          return await response.json();
+        }
 
-  const response = await fetch(`${BASE_URL}/api/v5/vision/analyze-batch`, {
-    method: 'POST',
-    body: formData,
-    headers: authHeaders,
-  });
+        if (response.status === 400 || response.status === 401 || response.status === 413) {
+          const errorData = await response.json().catch(() => ({ detail: `HTTP ${response.status}` }));
+          throw createApiError(errorData.detail || `HTTP ${response.status}`, { status: response.status });
+        }
 
-  if (!response.ok) {
-    const error = await response.json().catch(() => ({ detail: 'Batch analysis failed' }));
-    throw createApiError(error.detail || `HTTP ${response.status}`, {
-      status: response.status,
-    });
-  }
+        lastError = new Error(`Server returned HTTP ${response.status}`);
+      } catch (err: any) {
+        if (err.status === 400 || err.status === 401 || err.status === 413) {
+          throw err;
+        }
+        lastError = err;
+      }
+    }
 
-  return await response.json();
+    throw createApiError(lastError?.message || 'Vision service unreachable', { isOffline: true });
   } finally {
     for (const file of temporaryFiles) {
       try { if (file.exists) file.delete(); } catch (err) { console.warn('Scan upload cleanup failed:', err); }
