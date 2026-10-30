@@ -10,11 +10,27 @@
       "destination": "/api/index.py?__path=health"
     },
     {
-      "source": "/:font(.ttf)",
+      "source": "/assets/node_modules/@expo/vector-icons/build/vendor/react-native-vector-icons/Fonts/:font",
+      "destination": "/fonts/:font"
+    },
+    {
+      "source": "/assets/node_modules/@expo/vector-icons/:path*/:font",
       "destination": "/fonts/:font"
     },
     {
       "source": "/assets/node_modules/@expo-google-fonts/plus-jakarta-sans/:weight/:font",
+      "destination": "/fonts/:font"
+    },
+    {
+      "source": "/assets/node_modules/@expo-google-fonts/:path*/:font",
+      "destination": "/fonts/:font"
+    },
+    {
+      "source": "/assets/node_modules/:path*/:font",
+      "destination": "/fonts/:font"
+    },
+    {
+      "source": "/:font(.*\\.ttf)",
       "destination": "/fonts/:font"
     },
     {
@@ -71,6 +87,23 @@
     {
       "source": "/fonts/(.*)",
       "headers": [
+        {
+          "key": "Access-Control-Allow-Origin",
+          "value": "*"
+        },
+        {
+          "key": "Cache-Control",
+          "value": "public, max-age=31536000, immutable"
+        }
+      ]
+    },
+    {
+      "source": "/assets/(.*)",
+      "headers": [
+        {
+          "key": "Access-Control-Allow-Origin",
+          "value": "*"
+        },
         {
           "key": "Cache-Control",
           "value": "public, max-age=31536000, immutable"
