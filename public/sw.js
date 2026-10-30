@@ -3,7 +3,7 @@
  * High-reliability offline caching for Indian smallholders & FPOs.
  */
 
-const CACHE_NAME = 'annapurna-pwa-v3';
+const CACHE_NAME = 'annapurna-pwa-v4';
 const STATIC_ASSETS = [
   '/',
   '/index.html',
